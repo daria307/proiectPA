@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SmartStockFlow</title>
+
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+</head>
+
+<body>
+
+<section class="hero-section" id="startView">
+  <div class="container">
+    <div class="header-row">
+      <div class="logo-box">
+        <a href="#" class="logo-button" id="enterApp">
+          <h1>SmartStockFlow</h1>
+        </a>
+      </div>
+
+      <div class="tagline">
+        <p>Easily manage stocks, products, and expenses – all in one place.</p>
+      </div>
+    </div>
+
+    <div class="hero-image-container">
+      <img src="proiectPAimg.png" class="hero-image" alt="App preview">
+    </div>
+  </div>
+</section>
+
+<div class="app" id="appShell">
+  <header class="topbar">
+    <div class="search">
+      <i class="fas fa-search"></i>
+      <input id="q" type="text" placeholder="Caută...">
+    </div>
+
+    <div class="topbar-actions">
+      <button class="pill" id="navStoc">Stoc produse</button>
+
+      <div class="segmented" id="segmented">
+        <button class="seg-btn" id="btnIncasari" data-mode="incasari">Încasări</button>
+        <button class="seg-btn" id="btnCheltuieli" data-mode="cheltuieli">Cheltuieli</button>
+      </div>
+
+      <button class="alert-btn" id="alertBtn" title="Alerte">
+        <i class="fas fa-exclamation"></i>
+      </button>
+
+      <button class="avatar" aria-label="Profil">
+        <i class="fas fa-user"></i>
+      </button>
+    </div>
+  </header>
+
+  <main class="content">
+    <section class="view" id="viewStoc">
+      <div class="product-list" id="lista-produse"></div>
+
+      <button class="add-product" id="btn-adauga">
+        <i class="fas fa-plus-circle"></i>
+        Adăugați un nou produs
+      </button>
+    </section>
+
+    <section class="view" id="viewDash">
+      <div class="list" id="list"></div>
+
+      <div class="floating-actions" id="dashActions">
+        <button class="mini" id="btnAddIncasare">+ Încasare</button>
+        <button class="mini" id="btnAddCheltuiala">+ Cheltuială</button>
+      </div>
+    </section>
+
+    <section class="view" id="viewAlerts">
+      <div class="alerts-header">
+        <h2 class="alerts-title">Alerte</h2>
+        <button class="btn-outline" id="btnAddAlert">+ Adaugă alertă</button>
+      </div>
+
+      <div class="alerts-list" id="alertsList"></div>
+
+      <div class="alerts-footer">
+        <button class="btn-outline" id="btnClearAlerts">Șterge toate alertele</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+function readJSON(key, fallback){
+  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+  catch { return fallback; }
+}
+function writeJSON(key, value){
+  localStorage.setItem(key, JSON.stringify(value));
+}
+const uid = () => "id_" + Math.random().toString(16).slice(2) + Date.now().toString(16);
+
+const startView = document.getElementById("startView");
+const appShell = document.getElementById("appShell");
+const segmented = document.getElementById("segmented");
+const qEl = document.getElementById("q");
+
+document.getElementById("enterApp").addEventListener("click", (e) => {
+  e.preventDefault();
+  startView.style.display = "none";
+  appShell.style.display = "block";
+  goStoc();
+});
+
+function setActiveSegment(mode){
+  document.querySelectorAll(".seg-btn").forEach(b => b.classList.remove("is-active"));
+  if (mode) {
+    const btn = document.querySelector(`.seg-btn[data-mode="${mode}"]`);
+    if (btn) btn.classList.add("is-active");
+  }
+}
+function disableSegmented(disabled){
+  segmented.classList.toggle("disabled", disabled);
+  if (disabled) setActiveSegment(null);
+}
+function showOnly(viewId){
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("is-active"));
+  document.getElementById(viewId).classList.add("is-active");
+  document.getElementById("dashActions").style.display = (viewId === "viewDash") ? "flex" : "none";
+}
+
+const listaProduse = document.getElementById("lista-produse");
+const btnAdauga = document.getElementById("btn-adauga");
+
+function getProducts(){ return readJSON("products", []); }
+function saveProducts(arr){ writeJSON("products", arr); }
+
+const templateCard = `
+  <div class="card" data-id="">
+    <button class="delete-product" title="Șterge produs">
+      <i class="fa-solid fa-trash"></i>
+    </button>
+
+    <div class="image-upload-box">
+      <input type="file" accept="image/*">
+      <div class="img-placeholder">
+        <i class="fas fa-camera"></i><br>
+        <span> Adăugați imaginea </span>
+      </div>
+    </div>
+
+    <div class="card-content">
+      <input type="text" class="editable-input title-input" value="Produs" onfocus="this.value=''" spellcheck="false">
+      <input type="text" class="editable-input subtitle-input" value="Descriere model / ID" onfocus="this.value=''" spellcheck="false">
+    </div>
+
+    <div class="card-stats">
+      <div class="quantity-circle">
+        <input type="text" class="quantity-input" value="Nr buc" data-default="Nr buc">
+        <span class="quantity-label">bucăți</span>
+      </div>
+
+      <div class="price-box">
+        <input type="text" class="price-input" value="Preț" data-default="Preț">
+        <span class="ron">RON</span>
+      </div>
+    </div>
+  </div>
+`;
+
+function ensureId(card){
+  const id = card.dataset.id || uid();
+  card.dataset.id = id;
+  return id;
+}
+
+function cardToProduct(card){
+  const id = ensureId(card);
+
+  const name = (card.querySelector(".title-input")?.value || "").trim();
+  const desc = (card.querySelector(".subtitle-input")?.value || "").trim();
+
+  const qtyEl = card.querySelector(".quantity-input");
+  const priceEl = card.querySelector(".price-input");
+
+  const qtyRaw = (qtyEl?.value || "").trim();
+  const priceRaw = (priceEl?.value || "").trim();
+
+  const qtyDefault = qtyEl?.dataset.default || "";
+  const priceDefault = priceEl?.dataset.default || "";
+
+  const qty = (qtyRaw === qtyDefault || qtyRaw === "") ? 0 : (Number(qtyRaw.replace(",", ".")) || 0);
+  const price = (priceRaw === priceDefault || priceRaw === "") ? 0 : (Number(priceRaw.replace(",", ".")) || 0);
+
+  return { id, name, desc, qty, price };
+}
+
+function saveAllCards(){
+  const cards = Array.from(listaProduse.querySelectorAll(".card"));
+  const products = cards
+    .map(cardToProduct)
+    .filter(p => p.name || p.desc || p.qty || p.price);
+  saveProducts(products);
+}
+
+function renderStock(){
+  const saved = getProducts();
+  listaProduse.innerHTML = "";
+
+  if (!saved.length){
+    listaProduse.insertAdjacentHTML("beforeend", templateCard);
+    ensureId(listaProduse.querySelector(".card"));
+    return;
+  }
+
+  for (const p of saved){
+    listaProduse.insertAdjacentHTML("beforeend", templateCard);
+    const card = listaProduse.lastElementChild;
+    card.dataset.id = p.id || uid();
+
+    card.querySelector(".title-input").value = p.name ?? "";
+    card.querySelector(".subtitle-input").value = p.desc ?? "";
+
+    const qtyEl = card.querySelector(".quantity-input");
+    const priceEl = card.querySelector(".price-input");
+
+    qtyEl.value = (Number(p.qty) > 0) ? String(p.qty) : qtyEl.dataset.default;
+    priceEl.value = (Number(p.price) > 0) ? String(p.price) : priceEl.dataset.default;
+  }
+}
+
+listaProduse.addEventListener("input", (e) => {
+  if (e.target.matches("input")) saveAllCards();
+});
+
+listaProduse.addEventListener("focusin", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement)) return;
+  const def = el.dataset.default;
+  if (def && el.value.trim() === def) el.value = "";
+});
+
+listaProduse.addEventListener("focusout", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement)) return;
+  const def = el.dataset.default;
+  if (def && el.value.trim() === "") el.value = def;
+});
+
+listaProduse.addEventListener("click", (e) => {
+  const delBtn = e.target.closest(".delete-product");
+  if (!delBtn) return;
+
+  const card = delBtn.closest(".card");
+  if (!card) return;
+
+  const id = card.dataset.id;
+  card.remove();
+
+  const remaining = getProducts().filter(p => p.id !== id);
+  saveProducts(remaining);
+
+  if (listaProduse.querySelectorAll(".card").length === 0) {
+    listaProduse.insertAdjacentHTML("beforeend", templateCard);
+    ensureId(listaProduse.querySelector(".card"));
+  }
+});
+
+btnAdauga.addEventListener("click", () => {
+  listaProduse.insertAdjacentHTML("beforeend", templateCard);
+  ensureId(listaProduse.lastElementChild);
+  saveAllCards();
+});
+
+const listEl = document.getElementById("list");
+let mode = "incasari";
+
+function getTransactions(){ return readJSON("transactions", []); }
+function saveTransactions(arr){ writeJSON("transactions", arr); }
+
+function buildProductIncomeTransactions(products){
+  return products
+    .filter(p => (Number(p.qty) || 0) > 0 && (Number(p.price) || 0) > 0)
+    .map(p => ({
+      id: "p_income_" + p.id,
+      type: "incasare",
+      title: `Produsul ‘${p.name || "X"}’`,
+      subtitle: `Stoc: ${Number(p.qty)||0} buc · Preț: ${(Number(p.price)||0).toLocaleString("ro-RO")} RON`,
+      amount: (Number(p.qty) || 0) * (Number(p.price) || 0),
+    }));
+}
+
+function formatRON(n){
+  const x = Number(n) || 0;
+  return x.toLocaleString("ro-RO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " RON";
+}
+
+function escapeHtml(str){
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function dashCardHTML(t){
+  const isExpense = (t.type === "cheltuiala");
+  return `
+    <div class="dash-card">
+      <div class="dash-text">
+        <div class="dash-title">${escapeHtml(t.title)}</div>
+        <div class="dash-sub">${escapeHtml(t.subtitle || "")}</div>
+      </div>
+      <div class="amount ${isExpense ? "is-expense" : "is-income"}">
+        ${isExpense ? "-" : "+"} ${formatRON(t.amount)}
+      </div>
+    </div>
+  `;
+}
+
+function renderDash(){
+  const products = getProducts();
+  const productIncome = buildProductIncomeTransactions(products);
+  const manual = getTransactions();
+  const all = [...productIncome, ...manual];
+
+  const byMode = all.filter(t => mode === "incasari" ? t.type === "incasare" : t.type === "cheltuiala");
+
+  const q = (qEl.value || "").trim().toLowerCase();
+  const filtered = q ? byMode.filter(t =>
+    (t.title || "").toLowerCase().includes(q) ||
+    (t.subtitle || "").toLowerCase().includes(q)
+  ) : byMode;
+
+  listEl.innerHTML = filtered.length
+    ? filtered.map(dashCardHTML).join("")
+    : `<div class="empty">Nu există ${mode === "incasari" ? "încasări" : "cheltuieli"} de afișat.</div>`;
+}
+
+const alertBtn = document.getElementById("alertBtn");
+const alertsListEl = document.getElementById("alertsList");
+const btnAddAlert = document.getElementById("btnAddAlert");
+const btnClearAlerts = document.getElementById("btnClearAlerts");
+
+function getAlerts(){ return readJSON("alerts", []); }
+function saveAlerts(arr){ writeJSON("alerts", arr); }
+
+function updateAlertButton(){
+  const has = getAlerts().length > 0;
+  alertBtn.classList.toggle("has-alerts", has);
+}
+
+function renderAlerts(){
+  const alerts = getAlerts();
+  if (!alerts.length){
+    alertsListEl.innerHTML = `<div class="empty">Nu ai alerte.</div>`;
+    updateAlertButton();
+    return;
+  }
+
+  alertsListEl.innerHTML = alerts.map(a => `
+    <div class="alert-card">
+      <div class="alert-text">
+        <div class="alert-title">${escapeHtml(a.title)}</div>
+        <div class="alert-sub">${escapeHtml(a.details || "")}</div>
+      </div>
+      <button class="alert-del" data-id="${a.id}" title="Șterge">
+        <i class="fa-solid fa-trash"></i>
+      </button>
+    </div>
+  `).join("");
+
+  updateAlertButton();
+}
+
+alertsListEl.addEventListener("click", (e) => {
+  const del = e.target.closest(".alert-del");
+  if (!del) return;
+  const id = del.dataset.id;
+  const alerts = getAlerts().filter(a => a.id !== id);
+  saveAlerts(alerts);
+  renderAlerts();
+});
+
+btnAddAlert.addEventListener("click", () => {
+  const title = prompt("Titlu alertă:");
+  if (!title) return;
+  const details = prompt("Detalii (opțional):") || "";
+  const alerts = getAlerts();
+  alerts.push({ id: uid(), title, details, createdAt: Date.now() });
+  saveAlerts(alerts);
+  renderAlerts();
+});
+
+btnClearAlerts.addEventListener("click", () => {
+  if (!confirm("Sigur vrei să ștergi toate alertele?")) return;
+  saveAlerts([]);
+  renderAlerts();
+});
+
+function goStoc(){
+  showOnly("viewStoc");
+  disableSegmented(true);
+  renderStock();
+}
+
+function goDash(newMode){
+  mode = newMode;
+  showOnly("viewDash");
+  disableSegmented(false);
+  setActiveSegment(newMode);
+  renderDash();
+}
+
+function goAlerts(){
+  showOnly("viewAlerts");
+  disableSegmented(true);
+  renderAlerts();
+}
+
+document.getElementById("navStoc").addEventListener("click", goStoc);
+document.getElementById("btnIncasari").addEventListener("click", () => goDash("incasari"));
+document.getElementById("btnCheltuieli").addEventListener("click", () => goDash("cheltuieli"));
+alertBtn.addEventListener("click", goAlerts);
+
+function addManual(type){
+  const title = prompt(type === "incasare" ? "Titlu încasare:" : "Titlu cheltuială:");
+  if (!title) return;
+
+  const amountStr = prompt("Sumă (RON):");
+  if (!amountStr) return;
+
+  const amount = Number(amountStr.replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0){
+    alert("Suma trebuie să fie un număr > 0.");
+    return;
+  }
+
+  const subtitle = prompt("Detalii (opțional):") || "";
+  const tx = { id: uid(), type, title, subtitle, amount };
+
+  const arr = getTransactions();
+  arr.push(tx);
+  saveTransactions(arr);
+  renderDash();
+}
+
+document.getElementById("btnAddIncasare").addEventListener("click", () => addManual("incasare"));
+document.getElementById("btnAddCheltuiala").addEventListener("click", () => addManual("cheltuiala"));
+
+updateAlertButton();
+</script>
+
+</body>
+</html>
